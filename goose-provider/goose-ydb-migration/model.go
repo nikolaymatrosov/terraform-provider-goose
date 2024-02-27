@@ -13,5 +13,7 @@ type ydbMigrationDataModel struct {
 	MigrationTable types.String   `tfsdk:"migration_table"`
 	MigrationsDir  types.String   `tfsdk:"migrations_dir"`
 	Version        types.Int64    `tfsdk:"version"`
+	TargetVersion  types.Int64    `tfsdk:"target_version"`
+	Migrations     types.List     `tfsdk:"migrations"`
 	Timeouts       timeouts.Value `tfsdk:"timeouts"`
 }

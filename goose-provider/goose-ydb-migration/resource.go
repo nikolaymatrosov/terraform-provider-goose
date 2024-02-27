@@ -61,6 +61,16 @@ func (y *ydbMigration) Schema(ctx context.Context, _ resource.SchemaRequest, res
 					common.VersionPlanModifier(),
 				},
 			},
+			"target_version": schema.Int64Attribute{
+				Optional: true,
+			},
+			"migrations": schema.ListAttribute{
+				Computed:    true,
+				ElementType: types.StringType,
+				PlanModifiers: []planmodifier.List{
+					common.MigrationsPlanModifier(),
+				},
+			},
 			"timeouts": timeouts.Attributes(ctx, timeouts.Opts{
 				Create: true,
 				Update: true,
@@ -129,15 +139,6 @@ func (y *ydbMigration) Read(ctx context.Context, req resource.ReadRequest, resp 
 	var stateMigration ydbMigrationDataModel
 
 	resp.Diagnostics.Append(req.State.Get(ctx, &stateMigration)...)
-
-	//readTimeout, timeoutInitError := stateMigration.Timeouts.Read(ctx, 20*time.Second)
-	//if timeoutInitError != nil {
-	//	resp.Diagnostics.Append(timeoutInitError...)
-	//	return
-	//}
-
-	//ctx, cancel := context.WithTimeout(ctx, readTimeout)
-	//defer cancel()
 
 	iamToken, err := y.providerConfig.SDK.CreateIAMToken(ctx)
 	ctx = tflog.MaskMessageStrings(ctx, iamToken.IamToken)
@@ -221,19 +222,23 @@ func (y *ydbMigration) Update(ctx context.Context, req resource.UpdateRequest, r
 
 	db, err := goose.OpenDBWithDriver("ydb", dbString)
 	if err != nil {
-		log.Fatalf("goose: failed to open DB: %v\n", err)
+		tflog.Error(ctx, fmt.Sprintf("goose: failed to open DB: %v\n", err))
 	}
 
 	defer func() {
 		if err := db.Close(); err != nil {
-			log.Fatalf("goose: failed to close DB: %v\n", err)
+			tflog.Error(ctx, fmt.Sprintf("goose: failed to close DB: %v\n", err))
 		}
 	}()
-
-	if err := goose.UpToContext(ctx, db, planMigration.MigrationsDir.ValueString(), planMigration.Version.ValueInt64()); err != nil {
-		log.Fatalf("goose up: %v", err)
+	if planMigration.Version.ValueInt64() > stateMigration.Version.ValueInt64() {
+		if err := goose.UpToContext(ctx, db, planMigration.MigrationsDir.ValueString(), planMigration.Version.ValueInt64()); err != nil {
+			tflog.Error(ctx, fmt.Sprintf("goose up: %v", err))
+		}
+	} else if planMigration.Version.ValueInt64() < stateMigration.Version.ValueInt64() {
+		if err := goose.DownToContext(ctx, db, planMigration.MigrationsDir.ValueString(), planMigration.Version.ValueInt64()); err != nil {
+			tflog.Error(ctx, fmt.Sprintf("goose down: %v", err))
+		}
 	}
-
 	resp.Diagnostics.Append(resp.State.Set(ctx, &planMigration)...)
 }
 
@@ -267,17 +272,17 @@ func (y *ydbMigration) Delete(ctx context.Context, req resource.DeleteRequest, r
 
 	db, err := goose.OpenDBWithDriver("ydb", dbString)
 	if err != nil {
-		log.Fatalf("goose: failed to open DB: %v\n", err)
+		tflog.Error(ctx, fmt.Sprintf("goose: failed to open DB: %v\n", err))
 	}
 
 	defer func() {
 		if err := db.Close(); err != nil {
-			log.Fatalf("goose: failed to close DB: %v\n", err)
+			tflog.Error(ctx, fmt.Sprintf("goose: failed to close DB: %v\n", err))
 		}
 	}()
 
 	if err := goose.DownToContext(ctx, db, stateMigration.MigrationsDir.ValueString(), 0); err != nil {
-		log.Fatalf("goose up: %v", err)
+		tflog.Error(ctx, fmt.Sprintf("goose down: %v", err))
 	}
 
 }
